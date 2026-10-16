@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ARACHNE</title>
+<style>
+:root{--bg:#111517;--panel:#1a1f21;--panel2:#20272a;--line:#2a3235;--line2:#364044;--text:#e6ebe9;--dim:#8a9692;--faint:#5d6865;
+  --acc:#6aa7ff;--acc2:#2c4a73;--ok:#5fc38a;--warn:#f0b54a;--bad:#ef6b5b;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 22px) 16px calc(env(safe-area-inset-bottom) + 28px)}
+header{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+h1{font-size:20px;letter-spacing:.32em;margin:0;font-weight:700}
+header small{color:var(--dim);font-size:13px}
+.lead{color:var(--dim);font-size:13px;margin:0 0 18px}
+h2{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:22px 0 8px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:10px 14px}
+button:active{transform:translateY(1px);filter:brightness(1.15)}
+button.primary{background:var(--acc);border-color:var(--acc);color:#0b1320;font-weight:600}
+button.small{font-size:12px;padding:5px 10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px}
+.robot .top{display:flex;align-items:center;gap:10px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--faint);flex:none}
+.dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)}.dot.sim{background:var(--acc);box-shadow:0 0 8px var(--acc)}
+.robot b{font-size:16px}.robot .addr{font-family:var(--mono);font-size:12px;color:var(--dim);margin-left:auto}
+.robot .sub{color:var(--dim);font-size:13px;margin:6px 0 12px}
+.robot .go{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.robot .go button{padding:14px 8px;display:flex;flex-direction:column;align-items:center;gap:2px}
+.robot .go button span{font-size:11px;color:var(--dim);font-weight:400}
+.robot .go button.primary span{color:#1d3150}
+.scan{display:flex;align-items:center;gap:10px;color:var(--dim);font-size:13px}
+.bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden;flex:1}
+.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .15s}
+.empty{color:var(--dim);font-size:13px;text-align:center;padding:18px 8px}
+.row{display:flex;gap:8px}
+input{flex:1;min-width:0;font:14px var(--mono);color:var(--text);background:var(--bg);border:1px solid var(--line2);border-radius:9px;padding:10px 12px}
+.help{color:var(--dim);font-size:13px}
+.help li{margin:4px 0}
+.map{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px;color:var(--dim)}
+.map kbd{font:11px var(--mono);border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;padding:1px 6px;color:var(--text);background:var(--panel2);justify-self:start}
+details summary{cursor:pointer;color:var(--text);font-size:14px;list-style:none}
+details summary::before{content:"▸ ";color:var(--dim)}details[open] summary::before{content:"▾ "}
+.auto{display:flex;gap:10px;align-items:center;color:var(--dim);font-size:13px;margin:4px 0 0}.auto input{width:18px;height:18px;accent-color:var(--acc)}
+.foot{color:var(--faint);font-size:11px;text-align:center;margin-top:26px}
+</style>
+</head>
+<body>
+<main>
+  <header><h1>ARACHNE</h1><small>hexapod</small></header>
+  <p class="lead">Zoekt de spin op dit wifi-netwerk. Live twin van de echte robot, of de simulatie met fysica.</p>
+
+  <h2>Gevonden <button class="small" id="rescan">opnieuw zoeken</button></h2>
+  <div class="scan" id="scan"><span id="scantext">zoeken…</span><div class="bar"><i id="scanbar"></i></div></div>
+  <div id="list" style="margin-top:12px"></div>
+
+  <label class="auto"><input type="checkbox" id="auto"> meteen de cockpit openen bij het starten (handig op de tablet)</label>
+
+  <h2>Zelf een adres ingeven</h2>
+  <div class="row"><input id="manual" placeholder="spin.local of 10.72.3.22" autocapitalize="off" autocorrect="off" inputmode="url"><button id="add">Verbind</button></div>
+
+  <h2>Controller</h2>
+  <div class="card help">
+    <details>
+      <summary>Gamepad gebruiken (Xbox/Recon, PlayStation…)</summary>
+      <p>Koppel de controller via Bluetooth of USB-C aan deze telefoon en open de simulatie. Druk één keer op een knop, dan verschijnt hij bij <i>Bewegen → Controller</i>.</p>
+      <div class="map">
+        <kbd>L-stick</kbd><span>lopen</span><kbd>R-stick</kbd><span>draaien</span>
+        <kbd>A</kbd><span>opstaan</span><kbd>B</kbd><span>liggen</span>
+        <kbd>X</kbd><span>dansen</span><kbd>Y</kbd><span>zwaaien</span>
+        <kbd>L3 / R3</kbd><span>push-ups / rondkijken</span>
+        <kbd>View / Menu</kbd><span>buigen / twist</span>
+        <kbd>LB vasthouden</kbd><span>lichaam kantelen en draaien</span>
+        <kbd>RB</kbd><span>volgende gang</span>
+        <kbd>LT / RT</kbd><span>lager / hoger</span>
+        <kbd>D-pad</kbd><span>snelheid en staphoogte</span>
+        <kbd>Xbox / PS</kbd><span>stop</span>
+      </div>
+    </details>
+  </div>
+
+  <h2>Vind je niks?</h2>
+  <div class="card help"><ul style="margin:0;padding-left:18px">
+    <li>De telefoon moet op hetzelfde wifi zitten als de Pi (of de computer waarop de twin draait).</li>
+    <li>De Pi start de twin vanzelf op poort 5870. Wacht ±1 minuut na het aanzetten.</li>
+    <li>Thuis draait de simulatie ook op lvdell. Van buitenaf: <code>spin.vanrol.eu</code>.</li>
+  </ul></div>
+  <div class="foot">De simulatie beweegt de echte robot nooit. · <span id="ver"></span></div>
+</main>
+<script>
+const PORT = 5870, $ = s => document.querySelector(s);
+const store = {get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+               set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }};
+const found = new Map();   // base url -> info                      // base url -> info
+const KNOWN = ['spin.local', '192.168.68.88', '10.72.3.22'];
+const REMOTE = ['https://spin.vanrol.eu'];
+
+function base(h) {
+  h = h.trim().replace(/\/+$/, '');
+  if (/^https?:\/\//.test(h)) return h;
+  return h.includes(':') ? `http://${h}` : `http://${h}:${PORT}`;
+}
+async function probe(url, ms = 1500) {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url + '/app/info', {signal: c.signal, cache: 'no-store'});
+    if (r.ok) { const j = await r.json(); if (j.arachne) return j; }
+    return null;
+  } catch {
+    // older twins have no /app/info: an opaque answer on the port still means a server is there
+    try { await fetch(url + '/', {mode: 'no-cors', signal: c.signal, cache: 'no-store'}); return {old: true}; } catch { return null; }
+  } finally { clearTimeout(t); }
+}
+function openCockpit(url) { store.set('last', url); location.href = 'cockpit.html?robot=' + encodeURIComponent(url); }
+const PICK = location.search.includes('pick');
+let autoDone = false;
+function add(url, info) {
+  if (found.has(url)) return;
+  found.set(url, info); render();
+  // tablet mode: jump straight into the cockpit of the robot used last time (or the first one found)
+  if (store.get('autoCockpit', false) && !PICK && !autoDone && (url === store.get('last', null) || !store.get('last', null))) { autoDone = true; openCockpit(url); }
+}
+function render() {
+  const el = $('#list');
+  if (!found.size) { el.innerHTML = scanning ? '' : '<div class="card empty">Nog geen spin gevonden.</div>'; return; }
+  el.innerHTML = '';
+  for (const [url, i] of found) {
+    const ad = i.adapters ? Object.values(i.adapters) : [], real = ad.some(v => v === 'ok');
+    const remote = url.startsWith('https');
+    const NAMES = {spin: 'spin · Raspberry Pi', kobe: 'lvdell · thuisserver'};
+    const name = i.host ? (NAMES[i.host.toLowerCase()] || i.host) : 'ARACHNE';
+    const sub = i.old ? 'Oudere versie van de twin. Werkt, maar update de Pi met deploy_pi.sh.'
+      : real ? `Echte robot verbonden (${ad.length} adapter${ad.length > 1 ? 's' : ''}).`
+      : remote ? 'Via internet. Alleen de simulatie is hier zinvol.'
+      : 'Geen servo-adapters gezien: de simulatie werkt, de live twin blijft grijs.';
+    const d = document.createElement('div'); d.className = 'card robot';
+    d.innerHTML = `<div class="top"><span class="dot ${real ? 'ok' : 'sim'}"></span><b></b><span class="addr"></span></div>
+      <div class="sub"></div>
+      <div class="go"><button data-c="1" class="primary">Cockpit<span>camera, 3D, spraak</span></button>
+        <button data-p="/">Live twin<span>echte robot volgen</span></button>
+        <button data-p="/sim">Simulatie<span>alle instellingen</span></button></div>`;
+    d.querySelector('b').textContent = name; d.querySelector('.addr').textContent = url.replace(/^https?:\/\//, '');
+    d.querySelector('.sub').textContent = sub;
+    for (const b of d.querySelectorAll('[data-p]')) b.onclick = () => { store.set('last', url); location.href = url + b.dataset.p; };
+    d.querySelector('[data-c]').onclick = () => openCockpit(url);
+    el.appendChild(d);
+  }
+}
+let scanning = false;
+async function pool(items, n, fn, onDone) {
+  let k = 0, done = 0;
+  await Promise.all(Array.from({length: n}, async () => { while (k < items.length) { const it = items[k++]; await fn(it); onDone(++done, items.length); } }));
+}
+async function myIp() {
+  try { const P = window.Capacitor?.Plugins?.NetInfo; if (P) { const r = await P.getIp(); return r.ip || null; } } catch {}
+  return null;
+}
+async function scan() {
+  if (scanning) return; scanning = true; render();
+  const bar = $('#scanbar'), txt = $('#scantext'); bar.style.width = '0';
+  const quick = [...new Set([store.get('last', null), ...store.get('manual', []).map(base), ...KNOWN.map(base)].filter(Boolean))];
+  txt.textContent = 'bekende adressen…';
+  await Promise.all(quick.map(async u => { const i = await probe(u, 2500); if (i) add(u, i); }));
+  const ip = await myIp(); let hosts = [];
+  if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+    const p = ip.split('.').slice(0, 3).join('.');
+    hosts = Array.from({length: 254}, (_, i) => `http://${p}.${i + 1}:${PORT}`).filter(u => !found.has(u) && u !== `http://${ip}:${PORT}`);
+    txt.textContent = `netwerk ${p}.x scannen…`;
+    await pool(hosts, 48, async u => { const i = await probe(u, 1200); if (i && !i.old) add(u, i); },
+      (d, n) => { bar.style.width = (d/n*100) + '%'; });
+  }
+  if (!found.size) { txt.textContent = 'via internet proberen…'; for (const u of REMOTE) { const i = await probe(u, 4000); if (i) add(u, {...i, adapters: {}}); } }
+  bar.style.width = '100%';
+  txt.textContent = found.size ? `${found.size} gevonden${ip ? ' · jouw ip ' + ip : ''}` : `niets gevonden${ip ? ' op ' + ip.split('.').slice(0, 3).join('.') + '.x' : ''}`;
+  scanning = false; render();
+}
+$('#rescan').onclick = () => { found.clear(); scan(); };
+$('#add').onclick = async () => {
+  const v = $('#manual').value; if (!v.trim()) return;
+  const u = base(v); $('#add').textContent = '…';
+  const i = await probe(u, 4000); $('#add').textContent = 'Verbind';
+  if (i) { const m = store.get('manual', []); if (!m.includes(v.trim())) store.set('manual', [v.trim(), ...m].slice(0, 6)); add(u, i); $('#manual').value = ''; }
+  else alert(`Geen ARACHNE gevonden op ${u}`);
+};
+$('#manual').addEventListener('keydown', e => { if (e.key === 'Enter') $('#add').click(); });
+$('#ver').textContent = 'app 1.1';
+$('#auto').checked = store.get('autoCockpit', false);
+$('#auto').onchange = () => store.set('autoCockpit', $('#auto').checked);
+scan();
+</script>
+</body>
+</html>

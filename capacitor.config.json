@@ -1,0 +1,7 @@
+{
+  "appId": "be.arachne.spin",
+  "appName": "ARACHNE",
+  "webDir": "www",
+  "server": { "androidScheme": "http", "cleartext": true, "allowNavigation": ["*"] },
+  "android": { "backgroundColor": "#0b0f14", "allowMixedContent": true }
+}

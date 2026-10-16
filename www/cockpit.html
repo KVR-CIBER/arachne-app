@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ARACHNE cockpit</title>
+<style>
+:root{--bg:#111517;--panel:#1a1f21;--panel2:#20272a;--line2:#364044;--text:#e6ebe9;--dim:#8a9692;--acc:#6aa7ff;--ok:#5fc38a;--warn:#f0b54a;--bad:#ef6b5b;--mono:ui-monospace,Menlo,Consolas,monospace;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,sans-serif;overflow:hidden}
+iframe{position:fixed;inset:0;width:100%;height:100%;border:0}
+#voice{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:10;display:flex;align-items:center;gap:10px;width:min(400px,calc(100vw - 460px));min-width:260px;
+  background:#151b1ef2;border:1px solid var(--line2);border-radius:28px;padding:6px 16px 6px 6px;box-shadow:0 8px 30px #000a;transition:border-color .2s,box-shadow .2s}
+#voice.awake{border-color:var(--acc);box-shadow:0 0 0 3px #6aa7ff33,0 8px 30px #000a}
+#voice.off{opacity:.7}
+#mic{width:42px;height:42px;border-radius:50%;border:0;background:var(--panel2);color:var(--dim);font-size:18px;flex:none;position:relative}
+#voice.listening #mic{color:var(--ok)}
+#voice.awake #mic{background:var(--acc);color:#0b1320}
+#voice.awake #mic::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid var(--acc);animation:p 1.1s infinite}
+@keyframes p{0%{opacity:.9;transform:scale(.9)}100%{opacity:0;transform:scale(1.35)}}
+#txt{display:flex;flex-direction:column;min-width:0}
+#heard{color:var(--dim);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#said{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (min-width:981px){#voice{left:calc((100vw - 340px)/2)}}
+#txt{flex:1}
+#gear{width:34px;height:34px;border-radius:50%;border:1px solid var(--line2);background:transparent;color:var(--dim);font-size:15px;flex:none}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line2);border-radius:14px;padding:20px;width:min(520px,92vw)}
+dialog::backdrop{background:#000a}
+dialog h2{margin:0 0 12px;font-size:16px}
+dialog label{display:block;font-size:12px;color:var(--dim);margin-bottom:12px}
+dialog input[type=text],dialog input[type=password],dialog select{display:block;width:100%;margin-top:4px;font:13px var(--mono);color:var(--text);background:var(--bg);border:1px solid var(--line2);border-radius:8px;padding:9px 10px}
+dialog .check{display:flex;gap:8px;align-items:center;color:var(--text);font-size:14px}
+dialog p{color:var(--dim);font-size:12px;margin:-6px 0 12px}
+dialog .row{display:flex;justify-content:space-between;gap:8px}
+dialog button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:9px 14px}
+dialog button.primary{background:var(--acc);border-color:var(--acc);color:#0b1320;font-weight:600}
+</style>
+</head>
+<body>
+<iframe id="ck" allow="autoplay; gamepad"></iframe>
+<div id="voice" class="off">
+  <button id="mic" title="spraak aan/uit">🎙</button>
+  <div id="txt"><span id="heard">Zeg "hey spin"</span><span id="said">spraak staat uit, tik op de microfoon</span></div>
+  <button id="gear" title="spraak-instellingen">⚙</button>
+</div>
+
+<dialog id="set">
+  <form method="dialog">
+    <h2>Spraak</h2>
+    <label class="check"><input type="checkbox" id="s-on"> luisteren naar "hey spin"</label>
+    <label>Taal van de herkenning
+      <select id="s-lang"><option value="nl-BE">Nederlands (België)</option><option value="nl-NL">Nederlands (Nederland)</option><option value="en-US">English</option></select>
+    </label>
+    <label>Claude API-sleutel (optioneel)
+      <input type="password" id="s-key" placeholder="sk-ant-…" autocomplete="off">
+    </label>
+    <p>Zonder sleutel kent de spin vaste commando's (dans, kom naar mij, draai om, hoeveel volt…). Met een sleutel van console.anthropic.com beantwoordt hij ook vrije vragen.</p>
+    <div class="row"><button value="back" id="s-back">← robot kiezen</button><button value="ok" class="primary">Klaar</button></div>
+  </form>
+</dialog>
+
+<script type="module">
+import {findWake, parse, askClaude} from './voice.js';
+const $ = s => document.querySelector(s);
+const store = {get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+               set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }};
+const robot = new URLSearchParams(location.search).get('robot') || store.get('last', '');
+if (!robot) location.href = 'index.html';
+const ck = $('#ck'); ck.src = robot.replace(/\/+$/, '') + '/cockpit';
+const origin = new URL(ck.src).origin;
+
+// ------------------------------------------------------------------ talking to the cockpit page in the iframe
+let seq = 0; const waits = {};
+addEventListener('message', e => { const d = e.data; if (d?.arachne === 'reply' && waits[d.id]) { waits[d.id](d); delete waits[d.id]; } });
+function send(msg) {
+  return new Promise(res => { const id = ++seq; waits[id] = res; ck.contentWindow?.postMessage({...msg, id}, origin === 'null' ? '*' : origin);
+    setTimeout(() => { if (waits[id]) { delete waits[id]; res({}); } }, 1500); });
+}
+const state = async () => (await send({arachne: 'ping'})).state || {connected: false};
+
+// ------------------------------------------------------------------ speech in / out: native plugin in the app, Web Speech in a browser
+const V = window.Capacitor?.Plugins?.Voice;
+const engine = V ? {
+  start: lang => V.start({lang}), stop: () => V.stop(), speak: text => V.speak({text}),
+  on: (ev, fn) => V.addListener(ev, fn),
+} : (() => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let r = null, on = false, lang = 'nl-BE', talking = false; const L = {};
+  const fire = (ev, x) => (L[ev] || []).forEach(f => f(x));
+  const run = () => { if (!on || talking || !SR) return; r = new SR(); r.lang = lang; r.interimResults = true; r.continuous = false;
+    r.onstart = () => fire('state', {listening: true});
+    r.onresult = e => { const res = e.results[e.results.length - 1]; fire(res.isFinal ? 'final' : 'partial', {text: res[0].transcript}); };
+    r.onend = () => { fire('state', {listening: false}); setTimeout(run, 200); }; r.onerror = () => {}; try { r.start(); } catch {} };
+  return {start: async l => { if (!SR) throw new Error('Deze browser kan geen spraak herkennen'); lang = l; on = true; run(); },
+          stop: async () => { on = false; r?.abort(); },
+          speak: text => new Promise(res => { talking = true; r?.abort(); const u = new SpeechSynthesisUtterance(text); u.lang = lang; u.rate = 1.05; u.pitch = .9;
+            u.onend = u.onerror = () => { talking = false; res(); setTimeout(run, 250); }; speechSynthesis.speak(u); }),
+          on: (ev, fn) => (L[ev] = L[ev] || []).push(fn)};
+})();
+
+// ------------------------------------------------------------------ assistant
+const box = $('#voice'); let awakeUntil = 0, listening = false, on = false, busy = false;
+const heard = t => $('#heard').textContent = t, said = t => $('#said').textContent = t;
+function awake(v) { awakeUntil = v ? performance.now() + 8000 : 0; box.classList.toggle('awake', v); send({arachne: 'listening', on: v}); }
+setInterval(() => { if (awakeUntil && performance.now() > awakeUntil) awake(false); }, 500);
+async function speak(t) {   // never hang on a voice that does not report its end
+  said(t); try { await Promise.race([engine.speak(t), new Promise(r => setTimeout(r, Math.min(12000, 1500 + t.length*90)))]); } catch {}
+}
+
+engine.on('state', e => { listening = e.listening; box.classList.toggle('listening', listening); });
+engine.on('partial', e => { heard(e.text); if (!awakeUntil && findWake(e.text)) box.classList.add('awake'); });
+engine.on('final', e => handle(e.text));
+engine.on('error', e => { if (e.code === 9) said('geen toegang tot de microfoon'); });
+
+async function handle(text) {
+  heard(text);
+  const w = findWake(text); let cmd;
+  if (w) cmd = w.rest; else if (awakeUntil) cmd = text; else { if (!awakeUntil) box.classList.remove('awake'); return; }
+  if (busy) return;
+  if (!cmd) { awake(true); send({arachne: 'do', what: 'notice'}); await speak(pickHi()); awake(true); return; }
+  busy = true; awake(false);
+  try {
+    const st = await state(), p = parse(cmd, st);
+    if (p) { for (const a of p.actions) await send(a); await speak(p.say); }
+    else {
+      const key = store.get('claudeKey', '');
+      if (key) { said('even denken…'); await speak(await askClaude(key, cmd, st, send)); }
+      else await speak('Dat ken ik nog niet. Zeg bijvoorbeeld: dans, kom naar mij, of draai om.');
+    }
+  } catch (err) { await speak(err.message || 'Er ging iets mis.'); }
+  busy = false;
+}
+window.arachneHandle = handle; window.arachneState = state;   // for testing from the console
+const pickHi = () => ['Ja?', 'Zeg het maar.', 'Ik luister.'][Math.floor(Math.random()*3)];
+
+async function setOn(v) {
+  on = v; store.set('voiceOn', v); box.classList.toggle('off', !v);
+  try {
+    if (v) { await engine.start(store.get('voiceLang', 'nl-BE')); heard('Zeg "hey spin"'); said('ik luister'); }
+    else { await engine.stop(); said('spraak staat uit'); }
+  } catch (e) { on = false; box.classList.add('off'); said(e.message || String(e)); }
+}
+$('#mic').onclick = () => setOn(!on);
+$('#gear').onclick = () => { $('#s-on').checked = on; $('#s-lang').value = store.get('voiceLang', 'nl-BE'); $('#s-key').value = store.get('claudeKey', ''); $('#set').showModal(); };
+$('#set').addEventListener('close', () => {
+  if ($('#set').returnValue === 'back') { location.href = 'index.html?pick'; return; }
+  store.set('claudeKey', $('#s-key').value.trim());
+  const lang = $('#s-lang').value, changed = lang !== store.get('voiceLang', 'nl-BE'); store.set('voiceLang', lang);
+  if ($('#s-on').checked !== on || (changed && on)) { if (changed && on) engine.stop().then(() => setOn(true)); else setOn($('#s-on').checked); }
+});
+if (store.get('voiceOn', true)) setTimeout(() => setOn(true), 1200);
+</script>
+</body>
+</html>
