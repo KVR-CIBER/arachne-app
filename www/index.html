@@ -187,7 +187,7 @@ $('#add').onclick = async () => {
   else alert(`Geen ARACHNE gevonden op ${u}`);
 };
 $('#manual').addEventListener('keydown', e => { if (e.key === 'Enter') $('#add').click(); });
-$('#ver').textContent = 'app 1.5';
+$('#ver').textContent = 'app 1.6';
 (async () => {    // adapter already in the USB port: straight to the USB page (unless we came back from it)
   try {
     const P = window.Capacitor?.Plugins?.UsbSerial; if (!P) return;
