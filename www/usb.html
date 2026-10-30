@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ARACHNE USB</title>
+<style>
+:root{--bg:#05090c;--glass:rgba(12,22,28,.58);--line:rgba(120,220,255,.16);--line2:rgba(120,220,255,.3);--text:#e4f6ff;--dim:#7fa3b3;--faint:#4a6672;
+  --holo:#5fe1ff;--ok:#5fe1a0;--warn:#ffc061;--bad:#ff6b5b;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-user-select:none;user-select:none}
+#view{position:fixed;inset:0}
+#view canvas{display:block;width:100%;height:100%;touch-action:none}
+.glass{background:var(--glass);border:1px solid var(--line);border-radius:18px;backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3)}
+#top{position:fixed;left:0;right:0;top:0;display:flex;gap:12px;align-items:flex-start;padding:calc(env(safe-area-inset-top) + 16px) 16px 0;pointer-events:none}
+#top>*{pointer-events:auto}
+#brand{padding:12px 16px;display:flex;align-items:center;gap:14px;min-width:0}
+#brand h1{margin:0;font-size:15px;letter-spacing:.42em;font-weight:700}
+#brand .sep{width:1px;height:28px;background:var(--line2)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--faint);flex:none;transition:.3s}
+.dot.ok{background:var(--ok);box-shadow:0 0 12px var(--ok)}.dot.warn{background:var(--warn);box-shadow:0 0 12px var(--warn)}
+#state{min-width:0}#state b{display:block;font-size:14px;font-weight:600;white-space:nowrap}
+#state span{display:block;font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:34vw}
+#kpi{margin-left:auto;display:flex;gap:6px;padding:6px}
+#kpi div{padding:6px 12px;min-width:74px}
+#kpi span{display:block;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+#kpi b{font:600 18px var(--mono);color:var(--holo);text-shadow:0 0 10px rgba(95,225,255,.45)}
+#kpi b.warn{color:var(--warn);text-shadow:0 0 10px rgba(255,192,97,.5)}
+button{font:inherit;color:var(--text);background:rgba(95,225,255,.06);border:1px solid var(--line2);border-radius:14px;padding:12px 16px;cursor:pointer;transition:background .15s,transform .1s}
+button:active{transform:scale(.97);background:rgba(95,225,255,.18)}
+button:disabled{opacity:.3;pointer-events:none}
+#connect{padding:16px 20px;font-weight:600}
+#connect.big{background:var(--holo);color:#03202a;border-color:var(--holo);box-shadow:0 0 24px rgba(95,225,255,.45)}
+#dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 18px);display:flex;gap:8px;padding:8px;max-width:calc(100vw - 24px);overflow-x:auto}
+#dock button{min-width:104px;padding:14px 14px 12px;display:flex;flex-direction:column;align-items:center;gap:4px;font-weight:600;font-size:15px}
+#dock button svg{width:26px;height:26px;stroke:var(--holo);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 6px rgba(95,225,255,.5))}
+#dock button.on{background:var(--holo);color:#03202a;border-color:var(--holo);box-shadow:0 0 22px rgba(95,225,255,.5)}
+#dock button.on svg{stroke:#03202a;filter:none}
+#dock #stop{border-color:rgba(255,107,91,.55);background:rgba(255,107,91,.12);color:#ffd9d3}
+#dock #stop svg{stroke:var(--bad);filter:drop-shadow(0 0 6px rgba(255,107,91,.6))}
+#dock .gap{width:1px;background:var(--line2);margin:6px 4px;flex:none}
+#back{position:fixed;left:16px;bottom:calc(env(safe-area-inset-bottom) + 24px);color:var(--dim);font-size:13px;text-decoration:none;padding:10px 14px}
+#hint{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;color:var(--dim);font-size:13px;letter-spacing:.2em;text-transform:uppercase;pointer-events:none;transition:opacity .6s}
+@media (max-width:820px){#kpi div{min-width:0;padding:6px 8px}#kpi b{font-size:15px}#back{display:none}#dock button{min-width:84px}}
+@media (max-width:560px){#top{flex-wrap:wrap}#brand{flex:1 1 0;min-width:0;overflow:hidden}#brand h1{letter-spacing:.3em}#connect{flex:none;padding:12px 16px}#kpi{order:3;margin-left:0;width:100%;display:grid;grid-template-columns:repeat(4,1fr)}
+  #kpi div{padding:4px 6px}#kpi span{font-size:9px;letter-spacing:.1em}#kpi b{font-size:14px}#state span{max-width:40vw}#dock button{min-width:72px;font-size:13px}}
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div id="hint">hologram laden…</div>
+
+<div id="top">
+  <div id="brand" class="glass"><h1>ARACHNE</h1><i class="sep"></i><i class="dot" id="dot"></i>
+    <div id="state"><b id="title">niet verbonden</b><span id="msg">steek de adapter in dit toestel</span></div></div>
+  <div id="kpi" class="glass">
+    <div><span>servo's</span><b id="k-n">–</b></div><div><span>spanning</span><b id="k-v">–</b></div>
+    <div><span>warmst</span><b id="k-t">–</b></div><div><span>torque</span><b id="k-q">–</b></div>
+  </div>
+  <button id="connect" class="glass big">Verbind</button>
+</div>
+
+<div id="dock" class="glass">
+  <button id="stand" disabled><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>Opstaan</button>
+  <button id="dance" disabled><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg><span>Dansen</span></button>
+  <button id="six" disabled><svg viewBox="0 0 24 24"><path d="M3 9h7M14 15h7M6.5 9v4M17.5 15v-4"/><path d="M5 6.5l1.5-1.5 1.5 1.5M16 17.5l1.5 1.5 1.5-1.5"/></svg>6-7</button>
+  <button id="lie" disabled><svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>Liggen</button>
+  <button id="rest" disabled><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>Rust</button>
+  <button id="rescan" disabled><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>Zoeken</button>
+  <i class="gap"></i>
+  <button id="stop" disabled><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Stop</button>
+</div>
+<a id="back" class="glass" href="index.html">← terug</a>
+
+<script src="web/usb.js"></script>
+<script src="web/holo_fk.js"></script>
+<script src="web/update.js"></script>
+<script type="importmap">{"imports":{"three":"./web/vendor/three.module.js","three/addons/":"./web/vendor/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+const $ = s => document.querySelector(s);
+const APP = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
+if (!APP) $('#back').href = '/';
+
+// ------------------------------------------------------------------ hologram
+const view = $('#view');
+const renderer = new THREE.WebGLRenderer({antialias: true, alpha: false});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); view.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x05090c); scene.fog = new THREE.FogExp2(0x05090c, 1.1);
+const cam = new THREE.PerspectiveCamera(36, 1, .01, 20);
+const controls = new OrbitControls(cam, renderer.domElement);
+controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = .6; controls.minDistance = .35; controls.maxDistance = 2.4;
+controls.addEventListener('start', () => controls.autoRotate = false);
+const world = new THREE.Group(); world.rotation.x = -Math.PI / 2; scene.add(world);   // MuJoCo z-up -> three y-up
+
+const HOLO = new THREE.Color(0x5fe1ff), HOT = new THREE.Color(0xffc061), OFF = new THREE.Color(0xff6b5b);
+const uni = {time: {value: 0}};
+function holoMat() {
+  return new THREE.ShaderMaterial({
+    uniforms: {time: uni.time, color: {value: HOLO.clone()}, power: {value: 1}},
+    vertexShader: `varying vec3 vN; varying vec3 vV; varying float vY;
+      void main(){ vec4 w = modelMatrix*vec4(position,1.); vY = w.y; vec4 mv = viewMatrix*w;
+        vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
+    fragmentShader: `uniform float time; uniform vec3 color; uniform float power; varying vec3 vN; varying vec3 vV; varying float vY;
+      void main(){ float f = pow(1.-abs(dot(normalize(vN), vV)), 2.4);
+        float scan = .55+.45*sin(vY*900.-time*6.);
+        float flick = .94+.06*sin(time*37.)*sin(time*11.);
+        float a = (.07+f*.95)*(.75+.25*scan)*flick*power;
+        vec3 c = color*(.35+f*1.6) + vec3(.6,.95,1.)*pow(f,6.)*.6;
+        gl_FragColor = vec4(c*a, a); }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide});
+}
+
+// projector base: glowing disc, rings, light cone, rising particles
+const base = new THREE.Group(); scene.add(base);
+(function () {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256; const g = cv.getContext('2d');
+  const gr = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  gr.addColorStop(0, 'rgba(95,225,255,.55)'); gr.addColorStop(.35, 'rgba(95,225,255,.16)'); gr.addColorStop(1, 'rgba(95,225,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(.42, 64), new THREE.MeshBasicMaterial({map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending}));
+  disc.rotation.x = -Math.PI / 2; base.add(disc);
+  for (const [r, o] of [[.18, .5], [.26, .28], [.34, .5], [.40, .18]]) {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(r, r + .0025, 128), new THREE.MeshBasicMaterial({color: HOLO, transparent: true, opacity: o, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide}));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = .001; base.add(ring);
+  }
+  const ticks = new THREE.Group();
+  for (let i = 0; i < 72; i++) {
+    const t = new THREE.Mesh(new THREE.PlaneGeometry(.002, i % 6 ? .008 : .02), new THREE.MeshBasicMaterial({color: HOLO, transparent: true, opacity: .6, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide}));
+    const a = i / 72 * Math.PI * 2; t.position.set(Math.cos(a) * .37, .002, Math.sin(a) * .37); t.rotation.set(-Math.PI / 2, 0, -a + Math.PI / 2); ticks.add(t);
+  }
+  base.add(ticks); base.userData.ticks = ticks;
+  const cone = new THREE.Mesh(new THREE.CylinderGeometry(.30, .40, .5, 64, 1, true), new THREE.ShaderMaterial({
+    uniforms: {time: uni.time}, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    vertexShader: 'varying vec2 vU; void main(){ vU = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    fragmentShader: 'uniform float time; varying vec2 vU; void main(){ float a = pow(1.-vU.y, 3.)*.10*(.8+.2*sin(vU.x*60.+time)); gl_FragColor = vec4(vec3(.37,.88,1.)*a, a); }'}));
+  cone.position.y = .25; base.add(cone);
+  const n = 260, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const a = Math.random() * 6.283, r = Math.sqrt(Math.random()) * .38; pos.set([Math.cos(a) * r, Math.random() * .5, Math.sin(a) * r], i * 3); }
+  const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const pts = new THREE.Points(pg, new THREE.PointsMaterial({color: HOLO, size: .004, transparent: true, opacity: .55, depthWrite: false, blending: THREE.AdditiveBlending}));
+  base.add(pts); base.userData.pts = pts;
+})();
+
+let H = null, plan = null; const bodies = [], legMats = {};
+async function loadHolo() {
+  [H, plan] = await Promise.all([fetch('web/holo.json').then(r => r.json()), fetch('web/usb_plan.json').then(r => r.json())]);
+  const bin = await (await fetch('web/holo.bin')).arrayBuffer();
+  H.tree.forEach((b, i) => { const g = new THREE.Group(); bodies[i] = g; world.add(g); });
+  for (const g of H.groups) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(bin, g.v_off, g.v_len / 4), 3));
+    geo.setIndex(new THREE.BufferAttribute(new Uint32Array(bin, g.f_off, g.f_len / 4), 1));
+    geo.computeVertexNormals();
+    const leg = (H.tree[g.body].name.match(/^L(\d)/) || [])[1] || 'body';
+    const mat = legMats[leg] || (legMats[leg] = holoMat());
+    bodies[g.body].add(new THREE.Mesh(geo, mat));
+  }
+  base.position.y = H.ground; controls.target.set(0, H.ground + .1, 0);
+  cam.position.set(.62, H.ground + .42, .62); controls.update();
+  shown = plan.lie.slice();
+  $('#hint').style.opacity = 0;
+}
+
+let shown = null;
+function pose(ticks) {
+  if (!H || !shown) return;
+  for (let i = 0; i < ticks.length; i++) if (ticks[i] != null) shown[i] += (ticks[i] - shown[i]) * .35;   // smooth between servo reads
+  const {bodies: B} = HoloFK.fk(H, HoloFK.anglesOf(H, shown));
+  B.forEach((b, i) => { bodies[i].position.set(b[0], b[1], b[2]); bodies[i].quaternion.set(b[4], b[5], b[6], b[3]); });
+}
+function tint(r) {                // per leg: hologram blue, amber when hot, red when a servo is missing
+  if (!plan) return;
+  for (let n = 1; n <= 6; n++) {
+    const m = legMats[n]; if (!m) continue;
+    const idx = [0, 1, 2].map(k => (n - 1) * 3 + k);
+    const missing = r && r.link && idx.some(i => !r.found.includes(plan.sid[i]));
+    const hot = r && Math.max(...idx.map(i => r.temps[i] || 0));
+    m.uniforms.color.value.copy(missing ? OFF : hot > 50 ? HOT : HOLO);
+  }
+}
+
+function preview(t) {            // not connected: #staan shows the stand pose, #67 loops the 6-7 move
+  if (location.hash === '#67') { const f = plan.sixseven.frames; return f[Math.floor(t * plan.sixseven.hz) % f.length]; }
+  return location.hash === '#staan' ? plan.stand : plan.lie;
+}
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h); cam.aspect = w / h; cam.fov = Math.min(80, Math.max(36, 2 * Math.atan(Math.tan(.48) / cam.aspect) * 180 / Math.PI)); cam.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const t = clock.getElapsedTime(); uni.time.value = t;
+  if (base.userData.ticks) base.userData.ticks.rotation.y = t * .08;
+  if (base.userData.pts) { const p = base.userData.pts.geometry.attributes.position; for (let i = 1; i < p.array.length; i += 3) { p.array[i] += .0008; if (p.array[i] > .5) p.array[i] = 0; } p.needsUpdate = true; }
+  pose(robot ? robot.ticks : plan ? preview(t) : []);
+  controls.update(); renderer.render(scene, cam);
+});
+loadHolo().catch(e => $('#hint').textContent = 'hologram niet geladen: ' + e.message);
+
+// ------------------------------------------------------------------ robot over USB
+let robot = null;
+window.ArachneBusy = () => !!(robot && robot.action);
+function show(r, msg) {
+  const n = r.found.length, ok = n === 18;
+  $('#k-n').textContent = r.link ? n + '/18' : '–';
+  $('#k-v').textContent = r.volt ? r.volt.toFixed(1) + ' V' : '–'; $('#k-v').classList.toggle('warn', !!r.volt && r.volt < 10.8);
+  $('#k-t').textContent = r.temp ? r.temp + '°' : '–'; $('#k-t').classList.toggle('warn', r.temp > 50);
+  $('#k-q').textContent = r.torque === null ? '–' : r.torque + '/18';
+  $('#title').textContent = r.action ? r.action + '…' : !r.link ? 'niet verbonden' : ok ? 'spin ' + r.pose : n ? 'niet alle servo\'s' : 'geen servo\'s';
+  if (msg) $('#msg').textContent = msg;
+  $('#dot').className = 'dot ' + (!r.link ? '' : !ok || (r.volt && r.volt < 10.8) ? 'warn' : 'ok');
+  for (const b of ['stand', 'lie', 'rest', 'dance', 'six']) $('#' + b).disabled = !ok || (!!r.action && !(b === 'dance' && r.action === 'dansen'));
+  $('#rescan').disabled = !r.link || !!r.action; $('#stop').disabled = !r.link;
+  $('#dance').classList.toggle('on', r.action === 'dansen');
+  $('#dance span').textContent = r.action === 'dansen' ? 'Stop dans' : 'Dansen';
+  $('#connect').classList.toggle('big', !r.link); $('#connect').textContent = r.link ? '↻' : 'Verbind';
+  tint(r);
+}
+async function connect() {
+  try {
+    if (!plan) await new Promise(r => { const t = setInterval(() => plan && (clearInterval(t), r()), 50); });
+    if (!robot) robot = new ArachneUSB.Robot(plan, show);
+    $('#msg').textContent = 'verbinden…';
+    const how = await robot.connect();
+    show(robot, `${robot.found.length}/18 servo's via ${how}`);
+  } catch (e) { $('#msg').textContent = e.name === 'NotFoundError' ? 'geen adapter gekozen' : 'fout: ' + e.message; }
+}
+$('#connect').onclick = connect;
+$('#stand').onclick = () => robot.stand();
+$('#lie').onclick = () => robot.lie();
+$('#rest').onclick = () => robot.rest();
+$('#dance').onclick = () => robot.dance();
+$('#six').onclick = () => robot.sixSeven();
+$('#rescan').onclick = () => robot.run('zoeken', () => robot.scan());
+$('#stop').onclick = () => robot.stop();
+
+(async function idle() {           // between actions: follow the real servos, health every 3 s
+  let last = 0;
+  for (;;) {
+    if (robot && robot.link && !robot.action && robot.found.length) {
+      try {
+        await robot.readPos();
+        if (performance.now() - last > 3000) { last = performance.now(); await robot.health(); show(robot); }
+      } catch (e) { }
+    }
+    await new Promise(r => setTimeout(r, 60));
+  }
+})();
+if (!ArachneUSB.pickLink()) $('#msg').textContent = 'deze browser kan geen USB: gebruik de ARACHNE-app of Chrome';
+else if (APP) connect();   // app: no click needed
+</script>
+</body>
+</html>

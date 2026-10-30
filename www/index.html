@@ -45,10 +45,14 @@ details summary::before{content:"▸ ";color:var(--dim)}details[open] summary::b
 .foot{color:var(--faint);font-size:11px;text-align:center;margin-top:26px}
 </style>
 </head>
-<body>
+<body data-autoupdate>
 <main>
   <header><h1>ARACHNE</h1><small>hexapod</small></header>
   <p class="lead">Zoekt de spin op dit wifi-netwerk. Live twin van de echte robot, of de simulatie met fysica.</p>
+
+  <div class="card robot" id="usbcard"><div class="top"><span class="dot" id="usbdot"></span><b>Spin aan USB</b><span class="addr" id="usbtxt">kabel in de tablet</span></div>
+    <div class="sub">Steek de servo-adapter van de spin in dit toestel: opstaan, dansen, liggen zonder Pi of wifi.</div>
+    <div class="go" style="grid-template-columns:1fr"><button class="primary" onclick="location.href='usb.html?app'">Besturen via USB<span>rechtstreeks over de kabel</span></button></div></div>
 
   <h2>Gevonden <button class="small" id="rescan">opnieuw zoeken</button></h2>
   <div class="scan" id="scan"><span id="scantext">zoeken…</span><div class="bar"><i id="scanbar"></i></div></div>
@@ -183,10 +187,19 @@ $('#add').onclick = async () => {
   else alert(`Geen ARACHNE gevonden op ${u}`);
 };
 $('#manual').addEventListener('keydown', e => { if (e.key === 'Enter') $('#add').click(); });
-$('#ver').textContent = 'app 1.1';
+$('#ver').textContent = 'app 1.5';
+(async () => {    // adapter already in the USB port: straight to the USB page (unless we came back from it)
+  try {
+    const P = window.Capacitor?.Plugins?.UsbSerial; if (!P) return;
+    const {present} = await P.present();
+    $('#usbdot').className = 'dot' + (present ? ' ok' : ''); $('#usbtxt').textContent = present ? 'adapter gevonden' : 'kabel in de tablet';
+    if (present && !PICK && !document.referrer.includes('usb.html')) location.href = 'usb.html?app';
+  } catch {}
+})();
 $('#auto').checked = store.get('autoCockpit', false);
 $('#auto').onchange = () => store.set('autoCockpit', $('#auto').checked);
 scan();
 </script>
+<script src="web/update.js"></script>
 </body>
 </html>
