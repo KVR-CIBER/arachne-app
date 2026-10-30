@@ -26,10 +26,11 @@ function fk(H, q) {
     if (b.joint >= 0) r = qmul(r, axisAngle(b.axis, q[b.joint]));
     pos.push([pp[0] + o[0], pp[1] + o[1], pp[2] + o[2]]); rot.push(r);
   });
-  let low = Infinity;
-  for (const f of H.feet) low = Math.min(low, pos[f.body][2] + qrot(rot[f.body], f.pos)[2]);
+  const feet = H.feet.map(f => { const o = qrot(rot[f.body], f.pos), p = pos[f.body]; return [p[0] + o[0], p[1] + o[1], p[2] + o[2]]; });
+  const low = Math.min(...feet.map(f => f[2]));
   const lift = Math.max(0, H.ground - (low + H.tip));
-  return {bodies: pos.map((p, i) => [p[0], p[1], p[2] + lift, ...rot[i]]), lift};
+  return {bodies: pos.map((p, i) => [p[0], p[1], p[2] + lift, ...rot[i]]), lift,
+          feet: feet.map(f => [f[0], f[1], f[2] + lift]), rawFeet: feet};      // rawFeet: body frame, before the floor lift
 }
 
 if (typeof window !== 'undefined') window.HoloFK = {fk, anglesOf};

@@ -114,6 +114,9 @@ class Robot {
     this.p = plan; this.onState = onState;
     this.found = []; this.volt = null; this.temp = null; this.torque = null;
     this.ticks = plan.lie.slice(); this.temps = plan.sid.map(() => null); this.onPose = null;   // for the hologram
+    this.loads = plan.sid.map(() => null); this.volts = plan.sid.map(() => null);                // for the specs panel
+    this.gait = null; this.gk = 0; this.want = null; this.level = 'normaal';                   // walking: cycle + frame
+    this.onBeat = null; this.puppetOn = false; this.puppetGoal = null;
     this.pose = 'onbekend'; this.action = null; this.stopReq = false; this.link = null;
   }
   emit(msg) { this.onState(this, msg); }
@@ -139,11 +142,14 @@ class Robot {
     }
     this.onPose && this.onPose();
   }
-  async health() {                 // voltage + temperature of all servos, torque state
+  async health() {                 // per servo in one read (56..63: position, speed, load, voltage, temperature) + torque
     let v = 99, t = 0, on = 0;
     for (const id of this.found) {
-      const r = await this.bus.read(id, A.VOLT, 2);
-      if (r) { v = Math.min(v, r[0] / 10); t = Math.max(t, r[1]); this.temps[this.p.sid.indexOf(id)] = r[1]; }
+      const r = await this.bus.read(id, A.POS, 8), i = this.p.sid.indexOf(id);
+      if (r) {
+        this.ticks[i] = r[0] | r[1] << 8; this.loads[i] = ((r[4] | r[5] << 8) & 0x3ff) / 10;   // load: bit 10 = direction
+        this.volts[i] = r[6] / 10; this.temps[i] = r[7]; v = Math.min(v, r[6] / 10); t = Math.max(t, r[7]);
+      }
       const q = await this.bus.read(id, A.TORQUE, 1); if (q && q[0]) on++;
     }
     this.volt = v < 99 ? v : null; this.temp = t || null; this.torque = on;
@@ -153,7 +159,7 @@ class Robot {
   async run(name, fn) {
     if (this.action) return this.emit(`bezig met ${this.action}`);
     this.action = name; this.stopReq = false; this.emit(name + '…');
-    try { await fn(); } catch (e) { this.emit('fout: ' + e.message); }
+    try { if (name !== 'lopen' && name !== 'zoeken') await this.settle(); await fn(); } catch (e) { this.emit('fout: ' + e.message); }
     this.action = null; await this.health().catch(() => {}); this.emit();
   }
 
@@ -184,6 +190,7 @@ class Robot {
     }
   }
   stand(sec = 4) { return this.run('opstaan', async () => { await this.moveTo(this.p.stand, sec); this.pose = 'staat'; }); }
+  setLevel(l) { this.level = l; this.emit(`snelheid ${l}`); }
   lie(sec = 4) { return this.run('liggen', async () => { await this.moveTo(this.p.lie, sec); this.pose = 'ligt'; }); }
   rest() {
     return this.run('rusten', async () => {
@@ -206,7 +213,7 @@ class Robot {
   dance() {
     if (this.action === 'dansen') { this.stopReq = true; return this.emit('dans stopt na deze ronde…'); }
     return this.run('dansen', async () => {
-      if (this.pose !== 'staat') { await this.moveTo(this.p.stand, 4); this.pose = 'staat'; }
+      await this.needStand();
       const D = this.p.dance, ids = this.p.sid; let n = 0, low = false;
       const check = async k => {      // every second: one servo's voltage (too low -> stop at once); a stop waits for the end of the circle
         if (++n % D.hz === 0) {
@@ -222,11 +229,14 @@ class Robot {
       await this.play(D.out, D.hz);
     });
   }
-  sixSeven() {        // lean back, front legs up like hands, bob them in turn (tools/six_seven.py); stop = glide back to standing
-    return this.run('6-7', async () => {
-      if (this.pose !== 'staat') { await this.moveTo(this.p.stand, 4); this.pose = 'staat'; }
-      const S = this.p.sixseven, ids = this.p.sid; let n = 0, low = false;
-      const done = await this.play(S.frames, S.hz, async () => {
+  sixSeven() { return this.arms('6-7', this.p.sixseven); }     // lean back, front legs up like hands, bob them in turn
+  clap() { return this.arms('klappen', this.p.clap); }         // same lean, hands swing together in front (14 cm apart, never touching)
+  arms(name, S) {     // tools/six_seven.py moves; stop or low voltage = glide back to standing
+    return this.run(name, async () => {
+      await this.needStand();
+      const ids = this.p.sid; let n = 0, low = false;
+      const done = await this.play(S.frames, S.hz, async k => {
+        if (S.beats && S.beats.includes(k) && this.onBeat) this.onBeat();
         if (++n % S.hz === 0) {
           const r = await this.bus.read(ids[(n / S.hz) % ids.length], A.VOLT, 2);
           if (r) { this.volt = r[0] / 10; this.emit(); if (r[0] / 10 < LOW_V) low = true; }
@@ -236,8 +246,93 @@ class Robot {
       if (!done) { await this.moveTo(this.p.stand, 1.5); this.emit(low ? `spanning te laag (${this.volt} V): terug recht` : 'gestopt, terug recht'); }
     });
   }
+  async settle() {    // feet back home: a walk that stopped half-way (feet down, not home) first finishes its cycle
+    if (!this.gait || !this.gk) return;
+    const g = this.p.gaits[this.gait];
+    await this.play(g.frames.slice(this.gk), g.hz); this.gk = 0;
+  }
+  async needStand() { if (this.pose !== 'staat') { await this.moveTo(this.p.stand, 4); this.pose = 'staat'; } }
+
+  // walk while a button is held (drive(name)), drive(null) stops at the next moment all six feet are down (<= 1/3 cycle);
+  // the same direction again resumes from there, another direction first finishes the cycle (gamepad_robot.py rules)
+  drive(name) {
+    this.want = name ? `${this.level}/${name}` : null;
+    if (name && !this.action) this.run('lopen', () => this.walkLoop());
+  }
+  async walkLoop() {
+    await this.needStand();
+    const ids = this.p.sid; let n = 0;
+    for (;;) {
+      const want = this.stopReq ? null : this.want;
+      if (want !== this.gait && this.gk === 0) { if (!want) break; this.gait = want; }
+      const g = this.p.gaits[this.gait], third = g.frames.length / 3;
+      if (!want && this.gk % third === 0) break;                    // stopped with all feet down
+      const t0 = performance.now(), fr = g.frames[this.gk], d = {};
+      fr.forEach((t, i) => d[ids[i]] = this.goal(this.clamp(i, t)));
+      await this.bus.sync(A.GOAL, d); this.ticks = fr.slice(); this.onPose && this.onPose();
+      this.gk = (this.gk + 1) % g.frames.length;
+      if (++n % g.hz === 0) {
+        const r = await this.bus.read(ids[(n / g.hz) % ids.length], A.VOLT, 1);
+        if (r) { this.volt = r[0] / 10; this.emit(); if (this.volt < LOW_V) { this.want = null; this.emit(`spanning te laag (${this.volt} V)`); } }
+      }
+      const dt = t0 + 1000 / g.hz - performance.now(); if (dt > 0) await sleep(dt);
+    }
+  }
+  wave() {            // surprise: tap the hologram and the spin waves back (tools/wave.py: L1, 3 times)
+    return this.run('zwaaien', async () => {
+      await this.needStand();
+      const W = this.p.wave;
+      if (!await this.play(W.frames, W.hz, async () => this.stopReq)) await this.moveTo(this.p.stand, 1.5);
+    });
+  }
+  jump() {            // tools/jump.py: from lying, all 18 at full speed into a pose past standing, then settle into standing
+    return this.run('springen', async () => {
+      if (this.pose !== 'ligt') { await this.moveTo(this.p.lie, 3); this.pose = 'ligt'; await sleep(1200); }
+      const J = this.p.jump, ids = this.p.sid, push = {}, stand = {};
+      ids.forEach((id, i) => {
+        const p = this.clamp(i, J.pose[i]), s = this.clamp(i, this.p.stand[i]);
+        push[id] = [0, p & 255, p >> 8, 0, 0, 0, 0];                 // acc 0 + speed 0 = as fast as the servo can
+        stand[id] = [40, s & 255, s >> 8, 0, 0, 1500 & 255, 1500 >> 8];
+      });
+      await this.bus.sync(A.ACC, push);
+      const t0 = performance.now(); let vmin = 99;
+      for (let k = 0; performance.now() - t0 < J.hold * 1000; k++) {
+        const r = await this.bus.read(ids[k % ids.length], A.VOLT, 1);
+        if (r) vmin = Math.min(vmin, r[0] / 10);
+        if (vmin < 9.5) break;
+      }
+      await this.bus.sync(A.ACC, stand); this.pose = 'staat';
+      for (const t = performance.now(); performance.now() - t < 1200;) await this.readPos();
+      this.volt = vmin < 99 ? vmin : this.volt;
+      this.emit(vmin < 9.5 ? `sprong afgebroken: ${vmin} V` : `gesprongen · laagste spanning ${vmin} V`);
+    });
+  }
+  // puppet mode: the page drags one leg at a time (ticks for its 3 joints); a loop sends the newest goal at ~20 Hz,
+  // speed-limited so the real leg glides after the finger. Leaving puppet mode puts every leg back in the stand pose.
+  puppetStart() {
+    if (this.action) return;
+    this.puppetOn = true;
+    return this.run('poppenspel', async () => {
+      await this.needStand();
+      while (this.puppetOn && !this.stopReq) {
+        const g = this.puppetGoal; this.puppetGoal = null;
+        if (g) { const d = {}; g.idx.forEach((i, k) => d[this.p.sid[i]] = this.goal(this.clamp(i, g.t[k]), 1200)); await this.bus.sync(A.GOAL, d); }
+        else await this.readPos();
+        await sleep(45);
+      }
+      await this.moveTo(this.p.stand, 1.5);
+    });
+  }
+  puppetSet(idx, t) {
+    t = t.map((v, k) => Math.max(this.p.min[idx[k]] + 40, Math.min(this.p.max[idx[k]] - 40, Math.round(v))));
+    idx.forEach((i, k) => this.ticks[i] = t[k]); this.onPose && this.onPose();
+    if (this.action === 'poppenspel') this.puppetGoal = {idx, t};
+    return t;
+  }
+  puppetEnd() { this.puppetOn = false; }
   stop() {
-    if (this.action === 'dansen' || this.action === '6-7') this.stopReq = true;
+    this.want = null;
+    if (['dansen', '6-7', 'klappen', 'lopen', 'zwaaien', 'poppenspel'].includes(this.action)) this.stopReq = true;
     this.emit(this.action ? 'stoppen…' : 'staat stil');
   }
 }
