@@ -58,6 +58,24 @@ public class LiveUpdatePlugin extends Plugin {
         }).start();
     }
 
+    /** The page tells which version it runs; schedules the background check (UpdateJob) and asks for notifications. */
+    @PluginMethod
+    public void setCurrent(PluginCall call) {
+        long v = call.getData().optLong("version", 0);
+        getContext().getSharedPreferences(UpdateJob.PREFS, Context.MODE_PRIVATE).edit().putLong("current", v).apply();
+        UpdateJob.schedule(getContext());
+        if (android.os.Build.VERSION.SDK_INT >= 33 && getActivity() != null
+            && getContext().checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            getActivity().requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 67);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void notifyNow(PluginCall call) {
+        UpdateJob.notify(getContext(), call.getString("title", "ARACHNE"), call.getString("text", ""));
+        call.resolve();
+    }
+
     @PluginMethod
     public void apply(PluginCall call) {
         String path = call.getString("path");
