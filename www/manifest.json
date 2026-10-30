@@ -9,9 +9,9 @@
 "web/holo_fk.js": "fbd857825779a96adaf4e44451b4b0af6bfc5519d5939dfdc1431d8f982a2b46",
 "web/update.js": "a08dd4b055378e89493a4c257b83609438dbfb1dd468b957e4ce228893f66e70",
 "web/usb.js": "deade37cb867c27c7f53fe4d6b68340556dd0aed8671410498e24c964d2ff063",
-"web/usb_plan.json": "c9c28b8cbae2932b50dbad25797cfe877df529ceae3a98db1d6425d6c277a44a",
+"web/usb_plan.json": "dcdd43fe1b24d9a0aa6113b7c02769aced9c1f27ccadf0a20bd9a721185cd7ae",
 "web/vendor/controls/OrbitControls.js": "5a44a9e86a2a0fb11933eed69bc2cd33c76a496854c1aed6ed776efa87d7b064",
 "web/vendor/three.module.js": "76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495"
 },
-"version": 1793367959
+"version": 1793368391
 }
