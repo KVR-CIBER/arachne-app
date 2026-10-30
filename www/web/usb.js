@@ -75,6 +75,46 @@ class NativeLink {           // Android app: be.arachne.spin UsbSerialPlugin (wr
   }
 }
 
+class SimLink {             // 18 virtual STS3215s: same registers, ~3000 ticks/s, voltage sags while they move. The robot code runs unchanged.
+  name = 'simulatie';
+  constructor(plan) {
+    this.sv = {}; this.t = performance.now();
+    plan.sid.forEach((id, i) => { const m = new Uint8Array(256); m[48] = 0xe8; m[49] = 3; this.sv[id] = {m, pos: plan.lie[i], moving: 0, temp: 28 + Math.random() * 3};
+      m[42] = plan.lie[i] & 255; m[43] = plan.lie[i] >> 8; });
+  }
+  async open() { }
+  step() {
+    const now = performance.now(), dt = Math.min(.2, (now - this.t) / 1000); this.t = now; let moving = 0;
+    for (const s of Object.values(this.sv)) {
+      const m = s.m; s.moving = 0;
+      if (!m[40]) continue;
+      const goal = m[42] | m[43] << 8, v = (m[46] | m[47] << 8) || 3000, d = goal - s.pos, step = v * dt;
+      if (Math.abs(d) > .5) { s.pos += Math.abs(d) <= step ? d : Math.sign(d) * step; s.moving = Math.min(1, Math.abs(d) / 200); moving += s.moving; }
+      s.temp = Math.min(70, Math.max(28, s.temp + (s.moving * .6 - .05) * dt));
+    }
+    this.volt = Math.round((12.1 - moving * .07) * 10);
+  }
+  async xfer(b, n) {
+    await sleep(1); this.step();
+    const id = b[2], ins = b[4], prm = [...b.slice(5, -1)];
+    if (ins === 0x83) {                                   // sync write: no reply
+      const [addr, len] = prm;
+      for (let i = 2; i < prm.length; i += len + 1) { const s = this.sv[prm[i]]; if (s) for (let k = 0; k < len; k++) s.m[addr + k] = prm[i + 1 + k]; }
+      return new Uint8Array();
+    }
+    const s = this.sv[id]; if (!s) return new Uint8Array();
+    let data = [];
+    if (ins === 3) for (let k = 1; k < prm.length; k++) s.m[prm[0] + k - 1] = prm[k];
+    if (ins === 2) {
+      const p = Math.round(s.pos), load = Math.round((s.m[40] ? 60 + s.moving * 250 : 0));
+      s.m[56] = p & 255; s.m[57] = p >> 8; s.m[60] = load & 255; s.m[61] = load >> 8; s.m[62] = this.volt || 121; s.m[63] = Math.round(s.temp);
+      data = [...s.m.slice(prm[0], prm[0] + prm[1])];
+    }
+    const body = [id, data.length + 2, 0, ...data];
+    return Uint8Array.from([0xff, 0xff, ...body, ~body.reduce((x, y) => x + y, 0) & 255]);
+  }
+}
+
 function pickLink() {
   if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) return new NativeLink();
   if (navigator.serial) return new WebSerialLink();
@@ -123,8 +163,8 @@ class Robot {
   goal(t, speed = 0) { return [t & 255, t >> 8, 0, 0, speed & 255, speed >> 8]; }
   clamp(i, t) { return Math.max(this.p.min[i], Math.min(this.p.max[i], Math.round(t))); }
 
-  async connect() {
-    const link = pickLink();
+  async connect(sim) {
+    const link = sim ? new SimLink(this.p) : pickLink();
     if (!link) throw new Error('deze browser kan geen USB: open de ARACHNE-app of Chrome');
     await link.open(); this.link = link; this.bus = new Bus(link);
     link.onlost = () => { this.found = []; this.emit('USB-verbinding weg'); };
@@ -355,4 +395,4 @@ class Robot {
   }
 }
 
-window.ArachneUSB = {Robot, Bus, pickLink};
+window.ArachneUSB = {Robot, Bus, SimLink, pickLink};

@@ -30,6 +30,15 @@ button{font:inherit;color:var(--text);background:rgba(95,225,255,.06);border:1px
 button:active,button.held{transform:scale(.97);background:rgba(95,225,255,.22)}
 button:disabled{opacity:.3;pointer-events:none}
 #connect{padding:16px 20px;font-weight:600}
+#mode{display:flex;padding:4px;border-radius:999px;gap:2px;align-self:center;flex:none}
+#mode button{border:0;background:none;border-radius:999px;padding:10px 16px;font-size:13px;font-weight:600;color:var(--dim)}
+#mode button.on{background:rgba(95,225,255,.16);color:var(--text);box-shadow:inset 0 0 0 1px var(--line2)}
+#mode button[data-mode=sim].on{background:rgba(178,140,255,.22);color:#efe6ff;box-shadow:inset 0 0 0 1px rgba(178,140,255,.6)}
+body.sim #brand{border-color:rgba(178,140,255,.5)}body.sim #kpi b{color:#c9b2ff;text-shadow:0 0 10px rgba(178,140,255,.5)}
+#simtag{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 92px);transform:translateX(-50%);padding:5px 14px;border-radius:999px;font-size:11px;letter-spacing:.24em;
+  text-transform:uppercase;color:#e3d6ff;background:rgba(178,140,255,.16);border:1px solid rgba(178,140,255,.45);display:none;pointer-events:none}
+body.sim #simtag{display:block}
+body.sim .dot.ok{background:#b28cff;box-shadow:0 0 12px #b28cff}
 #connect.big{background:var(--holo);color:#03202a;border-color:var(--holo);box-shadow:0 0 24px rgba(95,225,255,.45)}
 
 #bottom{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 16px);display:flex;flex-direction:column;align-items:center;gap:10px;max-width:calc(100vw - 24px)}
@@ -97,8 +106,10 @@ button:disabled{opacity:.3;pointer-events:none}
     <div><span>servo's</span><b id="k-n">–</b></div><div><span>spanning</span><b id="k-v">–</b></div>
     <div><span>warmst</span><b id="k-t">–</b></div><div><span>torque</span><b id="k-q">–</b></div>
   </div>
+  <div id="mode" class="glass"><button data-mode="echt" class="on">Echt</button><button data-mode="sim">Simulatie</button></div>
   <button id="connect" class="glass big">Verbind</button>
 </div>
+<div id="simtag">simulatie · de echte spin beweegt niet</div>
 
 <aside id="specs" class="glass">
   <h2>Specs <button id="specs-x">sluiten</button></h2>
@@ -174,7 +185,7 @@ scene.add(new THREE.HemisphereLight(0x9fe8ff, 0x1a0b22, .9));
 const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(1.2, 2, .8); scene.add(key);
 const rim = new THREE.PointLight(0xff4fd8, 3, 2); rim.position.set(-.5, .5, -.6); scene.add(rim);
 
-const HOLO = new THREE.Color(0x5fe1ff), HOT = new THREE.Color(0xffc061), OFF = new THREE.Color(0xff6b5b), PINK = new THREE.Color(0xff4fd8);
+const SIMC = new THREE.Color(0xb28cff), HOLO = new THREE.Color(0x5fe1ff), HOT = new THREE.Color(0xffc061), OFF = new THREE.Color(0xff6b5b), PINK = new THREE.Color(0xff4fd8);
 const uni = {time: {value: 0}};
 function holoMat(color = HOLO) {
   return new THREE.ShaderMaterial({
@@ -285,7 +296,8 @@ async function loadHolo() {
   shown = plan.lie.slice(); demo = plan.lie.slice();
   specsStatic();
   $('#hint').style.opacity = 0;
-  const h = location.hash.slice(1);            // shortcuts for a quick look: #pop, #extra, #specs, #clap, #six, #dance, #wave
+  let h = location.hash.slice(1);              // shortcuts for a quick look: #pop, #extra, #specs, #clap, #six, #dance, #wave, #sim-<any of those>
+  if (h.startsWith('sim')) { await setMode('sim'); h = h.slice(4); if (h && h !== 'pop' && h !== 'extra' && h !== 'specs') { await robot.stand(1); } }
   if (h === 'pop' || h === 'extra') setTab(h); else if (h === 'specs') { setTab('extra'); act('specs'); } else if (h && h !== 'staan') setTimeout(() => act(h), 50);
 }
 
@@ -326,7 +338,7 @@ function tint(r) {                // per leg: hologram blue, amber when hot, red
   for (let n = 1; n <= 6; n++) {
     const idx = legJ('L' + n), missing = r && r.link && idx.some(i => !r.found.includes(plan.sid[i]));
     const hot = r && Math.max(...idx.map(i => r.temps[i] || 0));
-    const c = missing ? OFF : hot > 50 ? HOT : HOLO;
+    const c = missing ? OFF : hot > 50 ? HOT : simMode ? SIMC : HOLO;
     if (legMats[n]) legMats[n].uniforms.color.value.copy(c);
     const g = neonLegs['L' + n]; if (!g) continue;
     const cc = sel === 'L' + n ? PINK : c;
@@ -450,7 +462,27 @@ renderer.domElement.addEventListener('pointercancel', () => { dragging = false; 
 // ------------------------------------------------------------------ actions (real robot when connected, hologram demo otherwise)
 let demoLoop = null;
 function sixBtn() { const b = $('[data-act=six67]'), on = (robot && robot.action === '6-7 ∞') || (!!demoLoop && !demoLoop.stop); b.classList.toggle('on', on); b.querySelector('span').textContent = on ? 'Stop 6-7' : '6-7 ∞'; }
-let robot = null; window.ArachneBusy = () => !!(robot && robot.action);
+let robot = null, realRobot = null, simRobot = null, simMode = false; window.ArachneBusy = () => !!(robot && robot.action);
+async function setMode(m) {         // Echt <-> Simulatie: the same robot code, on the USB adapter or on 18 virtual servos
+  const sim = m === 'sim'; if (sim === simMode || !plan) return;
+  if (robot) { robot.puppetEnd(); if (robot.action) robot.stop(); }
+  simMode = sim; document.body.classList.toggle('sim', sim);
+  $$('#mode button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+  for (const mt of Object.values(legMats)) mt.uniforms.color.value.copy(sim ? SIMC : HOLO);
+  if (sim) {
+    if (!simRobot) { simRobot = new ArachneUSB.Robot(plan, (r, m) => r === robot && show(r, m)); simRobot.onBeat = clapSound; await simRobot.connect(true); }
+    robot = simRobot; shown = simRobot.ticks.slice(); show(simRobot, 'simulatie: alles werkt, alleen het hologram beweegt');
+  } else {
+    robot = realRobot; if (robot) show(robot, 'terug naar de echte spin'); else showNone();
+  }
+}
+$$('#mode button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+function showNone() {
+  for (const k of ['#k-n', '#k-v', '#k-t', '#k-q']) $(k).textContent = '–';
+  $('#title').textContent = 'niet verbonden'; $('#msg').textContent = 'steek de adapter in dit toestel'; $('#dot').className = 'dot';
+  $$('[data-act],[data-drive]').forEach(b => b.disabled = false); $('#connect').classList.add('big'); $('#connect').textContent = 'Verbind'; $('#connect').hidden = false;
+  tint(null);
+}
 let jumpArm = 0;
 function act(a, tapped) {
   const ok = live() && robot.found.length === 18;
@@ -539,14 +571,17 @@ function show(r, msg) {
   $$('[data-drive]').forEach(b => b.disabled = connectedBad || (r.link && busy && r.action !== 'lopen'));
   sixBtn();
   const db = $('[data-act=dance]'); db.classList.toggle('on', r.action === 'dansen'); db.querySelector('span').textContent = r.action === 'dansen' ? 'Stop dans' : 'Dansen';
-  $('#connect').classList.toggle('big', !r.link); $('#connect').textContent = r.link ? '↻' : 'Verbind';
+  $('#connect').classList.toggle('big', !r.link); $('#connect').textContent = r.link ? '↻' : 'Verbind'; $('#connect').hidden = simMode;
+  if (simMode) $('#title').textContent = r.action ? r.action + '… (sim)' : 'sim: spin ' + r.pose;
   if (tab === 'pop' && r.link && ok && !r.action) r.puppetStart();
   tint(r);
 }
 async function connect() {
   try {
     if (!plan) await new Promise(r => { const t = setInterval(() => plan && (clearInterval(t), r()), 50); });
-    if (!robot) { robot = new ArachneUSB.Robot(plan, show); robot.onBeat = clapSound; }
+    if (simMode) await setMode('echt');
+    if (!realRobot) { realRobot = new ArachneUSB.Robot(plan, (r, m) => r === robot && show(r, m)); realRobot.onBeat = clapSound; }
+    robot = realRobot;
     $('#msg').textContent = 'verbinden…';
     const how = await robot.connect();
     show(robot, `${robot.found.length}/18 servo's via ${how}`);
