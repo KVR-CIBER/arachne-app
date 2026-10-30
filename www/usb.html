@@ -127,6 +127,7 @@ button:disabled{opacity:.3;pointer-events:none}
     <div class="speed"><button data-level="normaal" class="on">normaal</button><button data-level="snel">snel</button></div>
     <i class="gap"></i>
     <button data-act="six"><svg viewBox="0 0 24 24"><path d="M3 9h7M14 15h7M6.5 9v4M17.5 15v-4"/><path d="M5 6.5l1.5-1.5 1.5 1.5M16 17.5l1.5 1.5 1.5-1.5"/></svg>6-7</button>
+    <button data-act="six67"><svg viewBox="0 0 24 24"><path d="M3 9h7M14 15h7M6.5 9v4M17.5 15v-4"/><path d="M5 6.5l1.5-1.5 1.5 1.5M16 17.5l1.5 1.5 1.5-1.5"/></svg><span>6-7 ∞</span></button>
     <button data-act="clap"><svg viewBox="0 0 24 24"><path d="M8 13l-2.5-6a1.3 1.3 0 0 1 2.4-1L10 10M10 10l-1.6-5a1.3 1.3 0 0 1 2.5-.8L13 10M13 10l.2-3a1.3 1.3 0 0 1 2.6.2L15.5 13"/><path d="M15.5 13c.8 3-1 6.5-4.5 7s-5.5-2-6-5"/><path d="M18 4l1.5-1.5M19.5 7H22M17 1.5V0"/></svg>Klappen</button>
     <button data-act="wave"><svg viewBox="0 0 24 24"><path d="M7 21l3-9 4-3M14 9l3-6M17 3c1.5 1 3 3 3 5"/><path d="M4 9c0-2 1-4 3-5"/></svg>Zwaaien</button>
     <button data-act="jump"><svg viewBox="0 0 24 24"><path d="M12 3v11M7 8l5-5 5 5"/><path d="M4 21c2-3 4-4 8-4s6 1 8 4"/></svg><span>Springen</span></button>
@@ -447,12 +448,14 @@ renderer.domElement.addEventListener('pointerup', up);
 renderer.domElement.addEventListener('pointercancel', () => { dragging = false; controls.enabled = true; });
 
 // ------------------------------------------------------------------ actions (real robot when connected, hologram demo otherwise)
+let demoLoop = null;
+function sixBtn() { const b = $('[data-act=six67]'), on = (robot && robot.action === '6-7 ∞') || (!!demoLoop && !demoLoop.stop); b.classList.toggle('on', on); b.querySelector('span').textContent = on ? 'Stop 6-7' : '6-7 ∞'; }
 let robot = null; window.ArachneBusy = () => !!(robot && robot.action);
 let jumpArm = 0;
 function act(a, tapped) {
   const ok = live() && robot.found.length === 18;
   if (a === 'specs') { $('#specs').classList.toggle('on'); return specsLive(); }
-  if (a === 'stop') { robot && robot.stop(); anim = null; return; }
+  if (a === 'stop') { robot && robot.stop(); if (demoLoop) { demoLoop.stop = true; return; } anim = null; return; }
   if (a === 'rescan') return robot && robot.run('zoeken', () => robot.scan());
   if (a === 'home') { for (const L of LEGS) setLeg(L, legJ(L).map(i => plan.stand[i])); sel = null; $('#knee').disabled = true; tint(robot); return; }
   if (a === 'jump' && ok) {      // the one violent move: tap twice
@@ -462,14 +465,18 @@ function act(a, tapped) {
   if (ok) {
     if (tapped && a === 'wave') toast('hallo! 👋');
     return {stand: () => robot.stand(), lie: () => robot.lie(), rest: () => robot.rest(), dance: () => robot.dance(), six: () => robot.sixSeven(),
-            clap: () => robot.clap(), wave: () => robot.wave(), jump: () => robot.jump()}[a]();
+            clap: () => robot.clap(), six67: () => robot.sixSevenLoop(), wave: () => robot.wave(), jump: () => robot.jump()}[a]();
   }
   if (live() || !plan) return;                                       // connected but not all servos: buttons are off anyway
   const D = plan.dance, home = (x) => playDemo([demo.slice(), x], 1.5 / 4, null);
   const demos = {
     stand: () => home(plan.stand), lie: () => home(plan.lie), rest: () => home(plan.lie),
     dance: () => playDemo([...D.in, ...D.loop, ...D.loop, ...D.out], D.hz), six: () => playDemo(plan.sixseven.frames, plan.sixseven.hz),
-    clap: () => playDemo(plan.clap.frames, plan.clap.hz, plan.clap.beats), wave: () => playDemo(plan.wave.frames, plan.wave.hz),
+    clap: () => playDemo(plan.clap.frames, plan.clap.hz, plan.clap.beats),
+    six67: () => { const L = plan.sixseven_loop;
+      if (demoLoop) { demoLoop.stop = true; return; }
+      demoLoop = {stop: false}; const me = demoLoop, again = () => me.stop ? (playDemo(L.out, L.hz), demoLoop = null, sixBtn()) : playDemo(L.loop, L.hz, null, again);
+      playDemo(L.in, L.hz, null, again); sixBtn(); }, wave: () => playDemo(plan.wave.frames, plan.wave.hz),
     jump: () => playDemo([plan.lie, plan.lie, plan.jump.pose, plan.jump.pose, plan.stand], 3)};
   if (demos[a]) { if (a !== 'stand' && a !== 'lie' && a !== 'rest') demo = plan.stand.slice(); demos[a](); toast(tapped ? 'hallo! 👋 (demo)' : 'demo: verbind de spin om het echt te doen'); }
 }
@@ -527,9 +534,10 @@ function show(r, msg) {
   $$('[data-act]').forEach(b => {
     const a = b.dataset.act;
     b.disabled = a === 'stop' ? !r.link : a === 'rescan' ? !r.link || busy : a === 'specs' || a === 'home' ? false
-      : connectedBad || (r.link && busy && !(a === 'dance' && r.action === 'dansen'));
+      : connectedBad || (r.link && busy && !(a === 'dance' && r.action === 'dansen') && !(a === 'six67' && r.action === '6-7 ∞'));
   });
   $$('[data-drive]').forEach(b => b.disabled = connectedBad || (r.link && busy && r.action !== 'lopen'));
+  sixBtn();
   const db = $('[data-act=dance]'); db.classList.toggle('on', r.action === 'dansen'); db.querySelector('span').textContent = r.action === 'dansen' ? 'Stop dans' : 'Dansen';
   $('#connect').classList.toggle('big', !r.link); $('#connect').textContent = r.link ? '↻' : 'Verbind';
   if (tab === 'pop' && r.link && ok && !r.action) r.puppetStart();

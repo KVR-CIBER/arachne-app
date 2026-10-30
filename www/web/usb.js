@@ -229,6 +229,24 @@ class Robot {
       await this.play(D.out, D.hz);
     });
   }
+  sixSevenLoop() {    // 6-7 until Stop: lean + lift once, bob in a seamless 17-frame loop, a stop finishes the swing and lowers
+    if (this.action === '6-7 ∞') { this.stopReq = true; return this.emit('6-7 stopt na deze zwaai…'); }
+    return this.run('6-7 ∞', async () => {
+      await this.needStand();
+      const S = this.p.sixseven_loop, ids = this.p.sid; let n = 0, low = false;
+      const check = async k => {
+        if (++n % S.hz === 0) {
+          const r = await this.bus.read(ids[(n / S.hz) % ids.length], A.VOLT, 2);
+          if (r) { this.volt = r[0] / 10; this.temp = Math.max(this.temp || 0, r[1]); this.emit(); if (r[0] / 10 < LOW_V) { low = true; return true; } }
+        }
+        return this.stopReq && k === S.loop.length - 1;
+      };
+      await this.play(S.in, S.hz);
+      while (!this.stopReq && !low) await this.play(S.loop, S.hz, check);
+      if (low) { await this.moveTo(this.p.stand, 1.5); this.emit(`spanning te laag (${this.volt} V): terug recht`); return; }
+      await this.play(S.out, S.hz);
+    });
+  }
   sixSeven() { return this.arms('6-7', this.p.sixseven); }     // lean back, front legs up like hands, bob them in turn
   clap() { return this.arms('klappen', this.p.clap); }         // same lean, hands swing together in front (14 cm apart, never touching)
   arms(name, S) {     // tools/six_seven.py moves; stop or low voltage = glide back to standing
@@ -332,7 +350,7 @@ class Robot {
   puppetEnd() { this.puppetOn = false; }
   stop() {
     this.want = null;
-    if (['dansen', '6-7', 'klappen', 'lopen', 'zwaaien', 'poppenspel'].includes(this.action)) this.stopReq = true;
+    if (['dansen', '6-7', '6-7 ∞', 'klappen', 'lopen', 'zwaaien', 'poppenspel'].includes(this.action)) this.stopReq = true;
     this.emit(this.action ? 'stoppen…' : 'staat stil');
   }
 }
